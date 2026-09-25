@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLUE — music to connect</title>
+  
+  <meta name="description" content="A quiet, single-screen music player with anonymous per-song reflections.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>">
+
+  <!-- Google Fonts: Playfair Display & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Full-Viewport Atmospheric Background -->
+  <div class="background-layer" aria-hidden="true">
+    <div class="vignette-overlay"></div>
+  </div>
+
+  <!-- Main Viewport Overlay UI -->
+  <div class="viewport-container">
+    
+    <!-- Top Bar: Floating Brand Title (Left) & Action Icons (Right) -->
+    <header class="top-header">
+      <div class="brand-area interactive">
+        <h1 class="brand-title" id="app-title">BLUE</h1>
+        <span class="brand-subtitle">music to connect</span>
+      </div>
+
+      <div class="action-buttons-group interactive">
+        <!-- Chat Drawer Toggle Button (Phase 2) -->
+        <button id="chat-toggle-btn" class="circle-btn" aria-label="Toggle Song Reflections" title="Song Reflections">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span id="chat-badge" class="badge-indicator" aria-hidden="true"></span>
+        </button>
+
+        <!-- Copyright & Info Modal Button -->
+        <button id="info-btn" class="circle-btn" aria-label="Information and Rights" title="Information & Rights">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Bottom Left: Floating Minimal Music Bar -->
+    <div class="bottom-music-area interactive">
+      <div class="music-bar" id="music-bar">
+        
+        <!-- Track Details -->
+        <div class="song-info">
+          <div class="song-title" id="song-title">Connecting to BLUE...</div>
+          <div class="song-subtitle" id="song-subtitle">Curated Collection</div>
+        </div>
+
+        <!-- Strict 3-Button Controls (‹  ⏸/▶  ›) -->
+        <div class="playback-controls">
+          <!-- Previous Button: 1st press = restart, 2nd consecutive press = history back -->
+          <button id="prev-btn" class="control-btn arrow-btn" aria-label="Previous Track / Restart" title="Restart / Previous Track">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+
+          <!-- Play / Pause Center Toggle -->
+          <button id="play-pause-btn" class="control-btn play-pause-btn" aria-label="Play" title="Play / Pause">
+            <svg id="play-pause-icon" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+
+          <!-- Next Button: Advance Shuffled Queue -->
+          <button id="next-btn" class="control-btn arrow-btn" aria-label="Next Track" title="Next Track">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Fixed Bottom Viewport Progress Bar -->
+  <div id="playback-progress" class="playback-progress" aria-hidden="true"></div>
+
+  <!-- Info & Copyright Modal Dialog -->
+  <div id="info-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title" class="modal-title">About blue</h2>
+        <button id="close-modal-btn" class="close-modal-btn" aria-label="Close dialog">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p>
+          <strong>Streaming Notice:</strong> This site does not host, re-encode, or store any music files. Every song streams live directly from YouTube through YouTube's official player API.
+        </p>
+        <p>
+          <strong>Rights & Ownership:</strong> All rights to the music, compositions, and recordings belong entirely to the original artists, record labels, and YouTube. BLUE is an aesthetic interface for enjoying and reflecting on music that is already public on YouTube.
+        </p>
+        <p>
+          <strong>Playback Availability:</strong> If a particular song does not play, it is typically because the copyright owner has restricted embedding outside the YouTube domain. We respect these restrictions and automatically skip to the next available melody.
+        </p>
+        <p>
+          <strong>Reflections & Comments:</strong> Song reflections are written anonymously by listeners and do not represent the views of or endorsement by the original creators or artists.
+        </p>
+
+        <!-- Subtle Divider -->
+        <div class="modal-divider" aria-hidden="true"></div>
+
+        <!-- Playlist Submission Section -->
+        <div class="modal-submission-section">
+          <p>
+            <strong>Submit your playlist:</strong> Want your favorite playlist featured here? Send it to us at <a href="mailto:yuva0night@gmail.com?subject=Playlist%20submission%20for%20BLUE" class="modal-link">yuva0night@gmail.com</a> and we might add it to BLUE.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anonymous Per-Song Chat Drawer (Phase 2) -->
+  <aside id="chat-drawer" class="chat-drawer" inert aria-label="Song Reflections Drawer">
+    <div class="chat-header">
+      <div class="chat-title-group">
+        <h2 class="chat-title">Song Reflections</h2>
+        <div class="chat-identity-row">
+          <span class="chat-identity-label">Listening as:</span>
+          <span class="chat-identity-chip" id="chat-listener-name">Listener</span>
+        </div>
+      </div>
+      <button id="close-chat-btn" class="close-modal-btn" aria-label="Close reflections panel">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Thin Divider -->
+    <div class="chat-divider" aria-hidden="true"></div>
+
+    <!-- Current Song Anchor Pill (2-3px Cyan Left Border) -->
+    <div class="chat-current-song-pill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 18V5l12-2v13"></path>
+        <circle cx="6" cy="18" r="3"></circle>
+        <circle cx="18" cy="16" r="3"></circle>
+      </svg>
+      <span id="chat-current-song-title">Select a track</span>
+    </div>
+
+    <!-- Messages List -->
+    <div class="chat-messages-container" id="chat-messages-list" aria-live="polite">
+      <div class="chat-empty-state">
+        <div class="empty-icon-wrap">
+          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+        </div>
+        <p class="empty-title">No reflections yet</p>
+        <p class="empty-desc">Share what this melody brings to your mind.</p>
+      </div>
+    </div>
+
+    <!-- Chat Input Area -->
+    <div class="chat-input-area">
+      <form id="chat-form" class="chat-form">
+        <div class="input-wrapper">
+          <textarea 
+            id="chat-input" 
+            class="chat-textarea" 
+            placeholder="Write a thought or memory about this song..." 
+            rows="1" 
+            maxlength="500"></textarea>
+          <button type="submit" id="chat-send-btn" class="chat-send-btn" aria-label="Send reflection" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="chat-input-footer">
+          <span class="chat-anonymous-label">Anonymous reflection</span>
+          <span id="chat-char-count" class="chat-char-count">0/500</span>
+        </div>
+      </form>
+    </div>
+  </aside>
+
+  <!-- Hidden YouTube Player Container (Off-Screen, zero interference) -->
+  <div class="hidden-yt-wrapper">
+    <div id="yt-player"></div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/songs.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/chat.js"></script>
+</body>
+</html>
