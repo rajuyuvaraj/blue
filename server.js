@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const Database = require('better-sqlite3');
+const { createClient } = require('@supabase/supabase-js');
 const playlist = require('./public/js/songs');
 
 const app = express();
@@ -14,6 +15,116 @@ const COOKIE_SECRET = process.env.COOKIE_SECRET || 'blue-secret-cookie-key';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'comments.db');
 const COMMENTS_JSON_FILE = path.join(DATA_DIR, 'comments.json');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const useSupabase = Boolean(supabaseUrl && (supabaseAnonKey || supabaseServiceKey));
+const supabase = useSupabase
+  ? createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+  : null;
+
+function createCommentRecord(videoId, author, content) {
+  return {
+    id: 'c-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+    video_id: videoId,
+    author,
+    content,
+    created_at: new Date().toISOString(),
+    flagged: 0
+  };
+}
+
+async function fetchCommentsForVideo(videoId) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('id, video_id, author, content, created_at')
+      .eq('video_id', videoId)
+      .eq('flagged', 0)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Supabase fetch comments error:', error);
+      return [];
+    }
+
+    return data || [];
+  }
+
+  const stmt = db.prepare(`
+    SELECT id, video_id, author, content, created_at 
+    FROM comments 
+    WHERE video_id = ? AND flagged = 0 
+    ORDER BY datetime(created_at) ASC, created_at ASC
+  `);
+  return stmt.all(videoId);
+}
+
+async function insertCommentForVideo(videoId, author, content) {
+  const newComment = createCommentRecord(videoId, author, content);
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('comments')
+      .insert([newComment])
+      .select();
+
+    if (error) {
+      throw new Error(error.message || 'Supabase insert failed');
+    }
+
+    return data && data[0] ? data[0] : newComment;
+  }
+
+  const insertStmt = db.prepare(`
+    INSERT INTO comments (id, video_id, author, content, created_at, flagged)
+    VALUES (@id, @video_id, @author, @content, @created_at, @flagged)
+  `);
+  insertStmt.run({
+    id: newComment.id,
+    video_id: newComment.video_id,
+    author: newComment.author,
+    content: newComment.content,
+    created_at: newComment.created_at,
+    flagged: newComment.flagged
+  });
+
+  return newComment;
+}
+
+async function flagCommentInStore(videoId, id) {
+  if (supabase) {
+    const { error } = await supabase
+      .from('comments')
+      .update({ flagged: 1 })
+      .eq('id', id)
+      .eq('video_id', videoId);
+
+    return !error;
+  }
+
+  const stmt = db.prepare('UPDATE comments SET flagged = 1 WHERE id = ? AND video_id = ?');
+  const info = stmt.run(id, videoId);
+  return info.changes > 0;
+}
+
+async function deleteCommentFromStore(videoId, id) {
+  if (supabase) {
+    const { error } = await supabase
+      .from('comments')
+      .delete()
+      .eq('id', id)
+      .eq('video_id', videoId);
+
+    return !error;
+  }
+
+  const stmt = db.prepare('DELETE FROM comments WHERE id = ? AND video_id = ?');
+  const info = stmt.run(id, videoId);
+  return info.changes > 0;
+}
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -167,24 +278,18 @@ app.get('/api/me', (req, res) => {
 });
 
 // REST: Get non-flagged comments for a song
-app.get('/api/comments/:videoId', (req, res) => {
+app.get('/api/comments/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!validVideoIds.has(videoId)) {
     return res.status(400).json({ error: 'Invalid video ID' });
   }
 
-  const stmt = db.prepare(`
-    SELECT id, video_id, author, content, created_at 
-    FROM comments 
-    WHERE video_id = ? AND flagged = 0 
-    ORDER BY datetime(created_at) ASC, created_at ASC
-  `);
-  const comments = stmt.all(videoId);
+  const comments = await fetchCommentsForVideo(videoId);
   res.json(comments);
 });
 
 // REST: Post a reflection for a song
-app.post('/api/comments/:videoId', (req, res) => {
+app.post('/api/comments/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!validVideoIds.has(videoId)) {
     return res.status(400).json({ error: 'Invalid video ID' });
@@ -214,25 +319,16 @@ app.post('/api/comments/:videoId', (req, res) => {
     return res.status(400).json({ error: 'Comment exceeds 500 characters.' });
   }
 
-  // Derive author securely server-side from signed cookie
   const author = getOrSetAuthor(req, res);
 
-  const newComment = {
-    id: 'c-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
-    video_id: videoId,
-    author: author,
-    content: trimmed,
-    created_at: new Date().toISOString(),
-    flagged: 0
-  };
+  let newComment;
+  try {
+    newComment = await insertCommentForVideo(videoId, author, trimmed);
+  } catch (error) {
+    console.error('Failed to insert comment:', error);
+    return res.status(500).json({ error: 'Unable to save comment right now.' });
+  }
 
-  const insertStmt = db.prepare(`
-    INSERT INTO comments (id, video_id, author, content, created_at, flagged)
-    VALUES (@id, @video_id, @author, @content, @created_at, @flagged)
-  `);
-  insertStmt.run(newComment);
-
-  // Broadcast to all active SSE listeners for this videoId
   if (sseClients.has(videoId)) {
     const clients = sseClients.get(videoId);
     const dataString = `data: ${JSON.stringify({
@@ -262,15 +358,14 @@ app.post('/api/comments/:videoId', (req, res) => {
 });
 
 // REST: Flag a comment
-app.post('/api/comments/:videoId/:id/flag', (req, res) => {
+app.post('/api/comments/:videoId/:id/flag', async (req, res) => {
   const { videoId, id } = req.params;
   if (!validVideoIds.has(videoId)) {
     return res.status(400).json({ error: 'Invalid video ID' });
   }
 
-  const stmt = db.prepare('UPDATE comments SET flagged = 1 WHERE id = ? AND video_id = ?');
-  const info = stmt.run(id, videoId);
-  if (info.changes === 0) {
+  const success = await flagCommentInStore(videoId, id);
+  if (!success) {
     return res.status(404).json({ error: 'Comment not found' });
   }
 
@@ -278,7 +373,7 @@ app.post('/api/comments/:videoId/:id/flag', (req, res) => {
 });
 
 // REST: Admin delete comment protected by ADMIN_TOKEN
-app.delete('/api/comments/:videoId/:id', (req, res) => {
+app.delete('/api/comments/:videoId/:id', async (req, res) => {
   const { videoId, id } = req.params;
   if (!validVideoIds.has(videoId)) {
     return res.status(400).json({ error: 'Invalid video ID' });
@@ -290,9 +385,8 @@ app.delete('/api/comments/:videoId/:id', (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const stmt = db.prepare('DELETE FROM comments WHERE id = ? AND video_id = ?');
-  const info = stmt.run(id, videoId);
-  if (info.changes === 0) {
+  const success = await deleteCommentFromStore(videoId, id);
+  if (!success) {
     return res.status(404).json({ error: 'Comment not found' });
   }
 
@@ -311,16 +405,63 @@ app.get('/api/comments/:videoId/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  if (supabase) {
+    const channel = supabase
+      .channel(`comments:${videoId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'comments',
+          filter: `video_id=eq.${videoId}`
+        },
+        (payload) => {
+          const record = payload.new || payload.old;
+          if (!record || record.flagged === 1) {
+            return;
+          }
+
+          try {
+            res.write(`data: ${JSON.stringify({
+              id: record.id,
+              video_id: record.video_id,
+              author: record.author,
+              content: record.content,
+              created_at: record.created_at
+            })}\n\n`);
+          } catch (err) {
+            console.warn('Error writing Supabase SSE event:', err);
+          }
+        }
+      )
+      .subscribe();
+
+    res.write(': connected\n\n');
+
+    const keepAliveInterval = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch (err) {
+        clearInterval(keepAliveInterval);
+      }
+    }, 20000);
+
+    req.on('close', () => {
+      clearInterval(keepAliveInterval);
+      supabase.removeChannel(channel);
+    });
+    return;
+  }
+
   if (!sseClients.has(videoId)) {
     sseClients.set(videoId, new Set());
   }
   const clients = sseClients.get(videoId);
   clients.add(res);
 
-  // Send initial connection event
   res.write(': connected\n\n');
 
-  // SSE Keepalive every 20 seconds
   const keepAliveInterval = setInterval(() => {
     try {
       res.write(': ping\n\n');

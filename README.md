@@ -1,6 +1,6 @@
 # BLUE — Music to Connect
 
-A quiet, single-screen Hindi music web player powered by YouTube's IFrame API with real-time anonymous per-song reflections streamed over Server-Sent Events (SSE) and persisted in SQLite.
+A quiet, single-screen Hindi music web player powered by YouTube's IFrame API with real-time anonymous per-song reflections streamed over Server-Sent Events (SSE) and persisted in SQLite by default, with optional Supabase support for deployment.
 
 ---
 
@@ -11,7 +11,7 @@ A quiet, single-screen Hindi music web player powered by YouTube's IFrame API wi
 - **Anonymous Reflections Wall**: Real-time per-song chat synced via SSE with color-hashed usernames and server-signed identity cookies.
 - **Two-Stage Navigation**: 1st previous press restarts the song; consecutive press traverses session history.
 - **Media Session API**: Full native lock screen / media key controls support with track artwork.
-- **Secure & Robust Backend**: SQLite (`better-sqlite3`), rate-limiting, keepalive pinging, HTTP security headers (`helmet`), and gzip compression (`compression`).
+- **Secure & Robust Backend**: SQLite fallback (`better-sqlite3`) with optional Supabase Postgres integration, rate-limiting, keepalive pinging, HTTP security headers (`helmet`), and gzip compression (`compression`).
 
 ---
 
@@ -50,6 +50,9 @@ A quiet, single-screen Hindi music web player powered by YouTube's IFrame API wi
 | `PORT` | The HTTP port the Express server listens on. | `3000` |
 | `ADMIN_TOKEN` | Bearer token required for administrative endpoints (e.g. comment deletion). | `changeme` |
 | `COOKIE_SECRET` | Secret key used to sign client author identity cookies. | `changeme` |
+| `SUPABASE_URL` | Supabase project URL for a hosted Postgres-backed comments store. | empty |
+| `SUPABASE_ANON_KEY` | Supabase anonymous key. | empty |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key used for admin writes. | empty |
 
 ---
 
