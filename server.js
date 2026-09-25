@@ -5,9 +5,17 @@ const fs = require('fs');
 const helmet = require('helmet');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
-const Database = require('better-sqlite3');
 const { createClient } = require('@supabase/supabase-js');
 const playlist = require('./public/js/songs');
+
+const isVercelRuntime = Boolean(process.env.VERCEL);
+let Database;
+try {
+  Database = require('better-sqlite3');
+} catch (error) {
+  console.warn('better-sqlite3 unavailable, falling back to Supabase-only mode:', error.message);
+  Database = null;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,15 +23,16 @@ const COOKIE_SECRET = process.env.COOKIE_SECRET || 'blue-secret-cookie-key';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'comments.db');
 const COMMENTS_JSON_FILE = path.join(DATA_DIR, 'comments.json');
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 const useSupabase = Boolean(supabaseUrl && (supabaseAnonKey || supabaseServiceKey));
 const supabase = useSupabase
   ? createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey, {
       auth: { persistSession: false, autoRefreshToken: false }
     })
   : null;
+let db = null;
 
 function createCommentRecord(videoId, author, content) {
   return {
@@ -53,6 +62,10 @@ async function fetchCommentsForVideo(videoId) {
     return data || [];
   }
 
+  if (!db) {
+    return [];
+  }
+
   const stmt = db.prepare(`
     SELECT id, video_id, author, content, created_at 
     FROM comments 
@@ -76,6 +89,10 @@ async function insertCommentForVideo(videoId, author, content) {
     }
 
     return data && data[0] ? data[0] : newComment;
+  }
+
+  if (!db) {
+    throw new Error('Local SQLite is unavailable in this runtime.');
   }
 
   const insertStmt = db.prepare(`
@@ -105,6 +122,10 @@ async function flagCommentInStore(videoId, id) {
     return !error;
   }
 
+  if (!db) {
+    return false;
+  }
+
   const stmt = db.prepare('UPDATE comments SET flagged = 1 WHERE id = ? AND video_id = ?');
   const info = stmt.run(id, videoId);
   return info.changes > 0;
@@ -121,40 +142,42 @@ async function deleteCommentFromStore(videoId, id) {
     return !error;
   }
 
+  if (!db) {
+    return false;
+  }
+
   const stmt = db.prepare('DELETE FROM comments WHERE id = ? AND video_id = ?');
   const info = stmt.run(id, videoId);
   return info.changes > 0;
 }
 
 // Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
+if (!isVercelRuntime && !fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 // Set of valid video IDs from curated playlist
 const validVideoIds = new Set(playlist.map((s) => s.videoId));
 
-// Initialize SQLite Database
-const db = new Database(DB_FILE);
-
-// Enable WAL mode for high concurrency
-db.pragma('journal_mode = WAL');
-
-// Initialize comments table schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS comments (
-    id TEXT PRIMARY KEY,
-    video_id TEXT NOT NULL,
-    author TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    flagged INTEGER DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id, flagged);
-`);
+if (!isVercelRuntime && Database) {
+  db = new Database(DB_FILE);
+  db.pragma('journal_mode = WAL');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      video_id TEXT NOT NULL,
+      author TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      flagged INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id, flagged);
+  `);
+}
 
 // Migrate existing comments from comments.json if table is empty
 function migrateJsonComments() {
+  if (!db) return;
   const rowCount = db.prepare('SELECT COUNT(*) as count FROM comments').get().count;
   if (rowCount === 0 && fs.existsSync(COMMENTS_JSON_FILE)) {
     try {
@@ -199,7 +222,9 @@ function migrateJsonComments() {
   }
 }
 
-migrateJsonComments();
+if (db) {
+  migrateJsonComments();
+}
 
 // Active SSE client connections: videoId -> Set of response objects
 const sseClients = new Map();
@@ -488,9 +513,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`BLUE server is playing on http://localhost:${PORT}`);
-});
+let server;
+
+if (require.main === module) {
+  server = app.listen(PORT, () => {
+    console.log(`BLUE server is playing on http://localhost:${PORT}`);
+  });
+}
 
 // Graceful Shutdown
 function handleShutdown(signal) {
@@ -508,23 +537,36 @@ function handleShutdown(signal) {
   sseClients.clear();
 
   // Close server
-  server.close(() => {
-    console.log('HTTP server closed.');
-    try {
-      db.close();
-      console.log('SQLite database connection closed.');
-    } catch (err) {
-      console.error('Error closing database:', err);
-    }
-    process.exit(0);
-  });
+  if (server) {
+    server.close(() => {
+      console.log('HTTP server closed.');
+      try {
+        if (db) db.close();
+        console.log('SQLite database connection closed.');
+      } catch (err) {
+        console.error('Error closing database:', err);
+      }
+      process.exit(0);
+    });
 
-  // Force exit after 5 seconds if graceful close hangs
-  setTimeout(() => {
-    console.error('Forced shutdown after timeout.');
-    process.exit(1);
-  }, 5000);
+    // Force exit after 5 seconds if graceful close hangs
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout.');
+      process.exit(1);
+    }, 5000);
+    return;
+  }
+
+  try {
+    if (db) db.close();
+  } catch (err) {
+    console.error('Error closing database:', err);
+  }
 }
 
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-process.on('SIGINT', () => handleShutdown('SIGINT'));
+if (require.main === module) {
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
+}
+
+module.exports = app;

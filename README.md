@@ -51,8 +51,11 @@ A quiet, single-screen Hindi music web player powered by YouTube's IFrame API wi
 | `ADMIN_TOKEN` | Bearer token required for administrative endpoints (e.g. comment deletion). | `changeme` |
 | `COOKIE_SECRET` | Secret key used to sign client author identity cookies. | `changeme` |
 | `SUPABASE_URL` | Supabase project URL for a hosted Postgres-backed comments store. | empty |
-| `SUPABASE_ANON_KEY` | Supabase anonymous key. | empty |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key used for admin writes. | empty |
+| `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/anon key. | empty |
+| `SUPABASE_SECRET_KEY` | Supabase secret key used for admin writes. | empty |
+| `SUPABASE_JWKS_URL` | Supabase JWKS URL used for auth validation. | empty |
+| `SUPABASE_ANON_KEY` | Legacy alias for the publishable key. | empty |
+| `SUPABASE_SERVICE_ROLE_KEY` | Legacy alias for the secret key. | empty |
 
 ---
 
